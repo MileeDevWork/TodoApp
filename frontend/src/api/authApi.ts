@@ -1,4 +1,10 @@
-import axios from "axios";
+import { http } from "./client";
 
-const API_URL = "http://localhost:5000/api/auth/";
-
+export const authApi = {
+  signup(payload: { name: string; email: string; password: string }) {
+    return http.post("/auth/signup", payload).then(r => r.data);
+  },
+  signin(payload: { email: string; password: string }) {
+    return http.post("/auth/signin", payload).then(r => r.data);
+  },
+};
