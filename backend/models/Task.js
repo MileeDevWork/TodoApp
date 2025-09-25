@@ -7,10 +7,17 @@ const taskSchema = new mongoose.Schema({
   // status: { type: String, enum: ['pending', 'completed'], default: 'pending' },
   status: { type: String, enum: ['todo', 'inprogress', 'done'], default: 'todo' },
   deadline: { type: Date },
+  startAt: { type: Date, default: null },
+  endAt: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
 });
+
+taskSchema.path('endAt').validate(function (v) {
+  if (!v || !this.startAt) return true;
+  return v >= this.startAt;
+}, 'endAt must be after startAt');
 
 taskSchema.pre('save', function (next) {
   this.updatedAt = Date.now();

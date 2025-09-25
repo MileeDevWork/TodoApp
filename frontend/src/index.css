@@ -84,7 +84,7 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  /* background-color: #1a1a1a; */
   cursor: pointer;
   transition: border-color 0.25s;
 }
@@ -105,7 +105,7 @@ button:focus-visible {
     color: #747bff;
   }
   button {
-    background-color: #f9f9f9;
+    /* background-color: #f9f9f9; */
   }
 }
 
@@ -191,3 +191,37 @@ button:focus-visible {
     @apply bg-background text-foreground;
   }
 }
+
+//component button
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+-   @apply btn bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500;
++   @apply bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500;
+  }
+  .btn-outline {
+-   @apply btn border border-slate-300 text-slate-700 hover:bg-slate-50;
++   @apply border border-slate-300 text-slate-700 hover:bg-slate-50;
+  }
+  .btn-ghost {
+-   @apply btn text-slate-600 hover:bg-slate-100;
++   @apply text-slate-600 hover:bg-slate-100;
+  }
+  .btn-danger {
+-   @apply btn bg-rose-600 text-white hover:bg-rose-700 focus:ring-rose-500;
++   @apply bg-rose-600 text-white hover:bg-rose-700 focus:ring-rose-500;
+  }
+  .icon-btn {
+    @apply p-1 rounded text-slate-600 hover:bg-slate-100 hover:text-indigo-600;
+  }
+  .icon-btn-danger {
+    @apply p-1 rounded text-slate-600 hover:bg-rose-50 hover:text-rose-600;
+  }
+  .chip { @apply inline-block px-2 py-0.5 rounded-full text-xs; }
+  .chip-todo { @apply bg-amber-100 text-amber-700; }
+  .chip-inprogress { @apply bg-indigo-100 text-indigo-700; }
+  .chip-done { @apply bg-emerald-100 text-emerald-700; }
+}
+
