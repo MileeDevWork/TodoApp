@@ -1,6 +1,6 @@
 import { http } from "./client";
 
-export type TaskStatus = "pending" | "completed";
+export type TaskStatus = "todo" | "inprogress" | "done";
 export type TaskPriority = "low" | "medium" | "high";
 
 export type Task = {
@@ -8,8 +8,10 @@ export type Task = {
   title: string;
   description?: string;
   priority: TaskPriority;
-  status: TaskStatus;
+  status: TaskStatus;         // 3 trạng thái mới
   deadline?: string | null;
+  startAt?: string | null;   
+  endAt?: string | null; 
   createdAt: string;
   userId: string;
 };

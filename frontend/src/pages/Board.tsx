@@ -2,215 +2,233 @@ import React, { useEffect, useState } from "react";
 import Header from "../components/header";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import type { DropResult } from "@hello-pangea/dnd";
+import { taskApi, type Task, type TaskStatus, type TaskPriority } from "@/api/taskApi";
+import { Edit2, Trash2 } from "lucide-react";
 
-// ================== Mock API services ================== //
-// Sau này bạn thay console.log = fetch/axios
-const fetchTasksAPI = async () => {
-  return {
-    todo: [
-      { id: "1", title: "tìm mua gpt pro ok", code: "DAMH-28", assignee: null },
-    ],
-    inprogress: [
-      { id: "2", title: "nghiên cứu p6 (camera)", code: "DAMH-29", assignee: "TL" },
-      { id: "3", title: "Nghiên cứu sơ về động lực học", code: "DAMH-26", assignee: "BH" },
-    ],
-    done: [
-      { id: "4", title: "lập kế hoạch thực hiện và gửi email cho thầy góp ý", code: "DAMH-27", assignee: "3" },
-      { id: "5", title: "dựng được con chó robot", code: "DAMH-31", assignee: null },
-      { id: "6", title: "tạo git+mail chung", code: "DAMH-33", assignee: null },
-      { id: "7", title: "cài môi trường cho ras", code: "DAMH-30", assignee: "BH" },
-    ],
-  };
-};
+type ColumnId = "todo" | "inprogress" | "done";
+type UiTask = { id: string; title: string; raw: Task };
+type Columns = Record<ColumnId, UiTask[]>;
 
-const updateTaskStatusAPI = async (taskId: string, newStatus: string) => {
-  console.log(`PUT /tasks/${taskId} → status=${newStatus}`);
-};
+const isoFromLocalDate = (dateYMD: string) =>
+  new Date(dateYMD + "T00:00:00Z").toISOString(); // lưu mốc 00:00 UTC để không lệch ngày
 
-const addTaskAPI = async (colId: string, newTask: any) => {
-  console.log(`POST /tasks → ${JSON.stringify({ ...newTask, status: colId })}`);
-};
-
-const editTaskAPI = async (taskId: string, updatedTask: any) => {
-  console.log(`PUT /tasks/${taskId} → ${JSON.stringify(updatedTask)}`);
-};
-
-const deleteTaskAPI = async (taskId: string) => {
-  console.log(`DELETE /tasks/${taskId}`);
-};
-
-// ================== Component chính ================== //
 const Board: React.FC = () => {
-  const [columns, setColumns] = useState<Record<string, any[]>>({
-    todo: [],
-    inprogress: [],
-    done: [],
-  });
+  const [columns, setColumns] = useState<Columns>({ todo: [], inprogress: [], done: [] });
+  const [loading, setLoading] = useState(false);
 
-  // Load dữ liệu ban đầu
+  // --- Edit modal state ---
+  const [editing, setEditing] = useState<Task | null>(null);
+  const [editForm, setEditForm] = useState<{
+    title: string;
+    status: TaskStatus;
+    priority: TaskPriority;
+    deadline: string; // YYYY-MM-DD
+  }>({ title: "", status: "todo", priority: "medium", deadline: "" });
+
+  const toUi = (t: Task): UiTask => ({ id: t._id, title: t.title, raw: t });
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const tasks = await taskApi.list();
+      setColumns({
+        todo: tasks.filter((t) => t.status === "todo").map(toUi),
+        inprogress: tasks.filter((t) => t.status === "inprogress").map(toUi),
+        done: tasks.filter((t) => t.status === "done").map(toUi),
+      });
+    } catch (e) {
+      console.error(e);
+      setColumns({ todo: [], inprogress: [], done: [] });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      const data = await fetchTasksAPI();
-      setColumns(data);
-    };
-    loadData();
+    void load();
   }, []);
 
-  // Kéo thả Task
   const handleDragEnd = async (result: DropResult) => {
     const { source, destination } = result;
     if (!destination) return;
 
-    if (source.droppableId === destination.droppableId) {
-      const col = [...columns[source.droppableId]];
+    const srcId = source.droppableId as ColumnId;
+    const dstId = destination.droppableId as ColumnId;
+
+    // cùng cột → chỉ reorder UI
+    if (srcId === dstId) {
+      const updated = { ...columns };
+      const col = Array.from(updated[srcId]);
       const [moved] = col.splice(source.index, 1);
       col.splice(destination.index, 0, moved);
+      updated[srcId] = col;
+      setColumns(updated);
+      return;
+    }
 
-      setColumns({ ...columns, [source.droppableId]: col });
-    } else {
-      const sourceCol = [...columns[source.droppableId]];
-      const destCol = [...columns[destination.droppableId]];
-      const [moved] = sourceCol.splice(source.index, 1);
-      destCol.splice(destination.index, 0, moved);
+    // khác cột → cập nhật UI + gọi API
+    const snapshot = { ...columns }; // để rollback nếu lỗi
+    const fromCol = Array.from(columns[srcId]);
+    const toCol = Array.from(columns[dstId]);
+    const [moved] = fromCol.splice(source.index, 1);
+    toCol.splice(destination.index, 0, moved);
+    setColumns({ ...columns, [srcId]: fromCol, [dstId]: toCol });
 
-      setColumns({
-        ...columns,
-        [source.droppableId]: sourceCol,
-        [destination.droppableId]: destCol,
-      });
-
-      await updateTaskStatusAPI(moved.id, destination.droppableId);
+    try {
+      await taskApi.update(moved.id, { status: dstId });
+    } catch (e) {
+      console.error(e);
+      setColumns(snapshot); // rollback
     }
   };
 
-  // Thêm Task mới
-  const handleAddTask = async (colId: string) => {
-    const newTask = {
-      id: Date.now().toString(),
-      title: "New Task",
-      code: "DAMH-" + Math.floor(Math.random() * 1000),
-      assignee: null,
-    };
-    setColumns({ ...columns, [colId]: [...columns[colId], newTask] });
-    await addTaskAPI(colId, newTask);
+  const createIn = async (colId: ColumnId) => {
+    try {
+      await taskApi.create({ title: "New Task", status: colId, priority: "medium" });
+      await load();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  // Sửa Task
-  const handleEditTask = async (colId: string, taskId: string) => {
-    const updatedTask = { title: "Edited Task" }; // demo
-    setColumns({
-      ...columns,
-      [colId]: columns[colId].map((t) =>
-        t.id === taskId ? { ...t, ...updatedTask } : t
-      ),
-    });
-    await editTaskAPI(taskId, updatedTask);
+  const remove = async (taskId: string) => {
+    try {
+      await taskApi.remove(taskId);
+      await load();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  // Xóa Task
-  const handleDeleteTask = async (colId: string, taskId: string) => {
-    setColumns({
-      ...columns,
-      [colId]: columns[colId].filter((t) => t.id !== taskId),
+  // ---- Edit modal handlers ----
+  const openEdit = (t: UiTask) => {
+    const raw = t.raw;
+    setEditing(raw);
+    setEditForm({
+      title: raw.title,
+      status: raw.status,
+      priority: raw.priority,
+      deadline: raw.deadline ? new Date(raw.deadline).toISOString().slice(0, 10) : "",
     });
-    await deleteTaskAPI(taskId);
   };
+
+  const closeEdit = () => setEditing(null);
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    try {
+      await taskApi.update(editing._id, {
+        title: editForm.title.trim(),
+        status: editForm.status,
+        priority: editForm.priority,
+        deadline: editForm.deadline ? isoFromLocalDate(editForm.deadline) : null,
+      });
+      setEditing(null);
+      await load();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const colTitle = (c: ColumnId) => (c === "todo" ? "To Do" : c === "inprogress" ? "In Process" : "Done");
+  const colAccent = (c: ColumnId) =>
+    c === "todo" ? "border-orange-300" : c === "inprogress" ? "border-blue-300" : "border-green-300";
 
   return (
     <div className="min-h-screen w-full relative bg-white">
-      {/* Background */}
       <div
         className="absolute inset-0 z-0"
         style={{
           background: "#ffffff",
-          backgroundImage: `
-            radial-gradient(
-              circle at top center,
-              rgba(70, 130, 180, 0.5),
-              transparent 70%
-            )
-          `,
+          backgroundImage:
+            "radial-gradient(circle at top center, rgba(70,130,180,0.5), transparent 70%)",
           filter: "blur(80px)",
           backgroundRepeat: "no-repeat",
         }}
       />
-
-      {/* Content */}
       <div className="relative z-10 flex flex-col w-screen min-h-screen">
         <Header />
 
-        <main className="flex-1 p-6 overflow-x-auto">
+        <main className="flex-1 p-6">
+          <div className="flex items-center justify-between mb-4">
+            {/* <h2 className="text-lg font-semibold">Kanban Board</h2> */}
+            {loading && <span className="text-sm text-gray-500">Loading…</span>}
+          </div>
+
           <DragDropContext onDragEnd={handleDragEnd}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {Object.entries(columns).map(([colId, tasks]) => (
+              {(Object.keys(columns) as ColumnId[]).map((colId) => (
                 <Droppable droppableId={colId} key={colId}>
                   {(provided) => (
                     <div
-                      className="bg-gray-50 rounded-lg shadow-sm p-4 flex flex-col min-h-[400px]"
                       ref={provided.innerRef}
                       {...provided.droppableProps}
+                      className={`bg-gray-50 rounded-lg shadow-sm p-4 min-h-[420px] border ${colAccent(colId)}`}
                     >
-                      {/* Column header */}
-                      <div className="flex items-center justify-between mb-4">
-                        <h2 className="font-semibold text-gray-700 uppercase text-sm">
-                          {colId === "todo"
-                            ? "To Do"
-                            : colId === "inprogress"
-                            ? "In Progress"
-                            : "Done"}
-                        </h2>
-                        <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">
-                          {tasks.length}
-                        </span>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-gray-700">{colTitle(colId)}</h3>
+                          <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">
+                            {columns[colId].length}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="text-sm text-gray-600 hover:text-purple-600"
+                          onClick={() => {
+                            void createIn(colId);
+                          }}
+                          title="Create task"
+                        >
+                          + Create
+                        </button>
                       </div>
 
-                      {/* Tasks */}
                       <div className="flex flex-col gap-3">
-                        {tasks.map((task, index) => (
-                          <Draggable
-                            key={task.id}
-                            draggableId={task.id}
-                            index={index}
-                          >
-                            {(provided) => (
+                        {columns[colId].map((t, index) => (
+                          <Draggable draggableId={t.id} index={index} key={t.id}>
+                            {(draggable) => (
                               <div
-                                className="bg-white rounded-md shadow px-3 py-2 flex flex-col gap-1"
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps}
+                                ref={draggable.innerRef}
+                                {...draggable.draggableProps}
+                                {...draggable.dragHandleProps}
+                                className="bg-white rounded-md shadow px-3 py-2"
                               >
-                                <div className="flex justify-between items-start">
-                                  <div>
-                                    <p className="text-sm font-medium">{task.title}</p>
-                                    <div className="flex items-center justify-between text-xs text-gray-500">
-                                      <span>{task.code}</span>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium truncate">{t.title}</p>
+                                    <div className="mt-1 text-xs text-gray-500 flex items-center gap-2">
+                                      <span className="inline-block px-2 py-0.5 bg-gray-100 rounded">
+                                        #{t.raw._id.slice(-6).toUpperCase()}
+                                      </span>
+                                      {t.raw.deadline && (
+                                        <span className="inline-block px-2 py-0.5 bg-gray-100 rounded">
+                                          {new Date(t.raw.deadline).toLocaleDateString()}
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
-                                  <div className="flex gap-2">
-                                    {/* <button
-                                      onClick={() => handleEditTask(colId, task.id)}
-                                      className="text-blue-500 text-xs"
+
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      className="p-1 rounded hover:bg-purple-50 text-gray-500 hover:text-purple-600"
+                                      onClick={() => openEdit(t)}
+                                      title="Edit"
                                     >
-                                      Sửa
-                                    </button> */}
-                                    {/* <button
-                                      onClick={() => handleDeleteTask(colId, task.id)}
-                                      className="text-red-500 text-xs"
+                                      <Edit2 size={16} className="pointer-events-none" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="p-1 rounded hover:bg-red-50 text-gray-500 hover:text-red-600"
+                                      onClick={() => {
+                                        void remove(t.id);
+                                      }}
+                                      title="Delete"
                                     >
-                                      Xóa
-                                    </button> */}
+                                      <Trash2 size={16} className="pointer-events-none" />
+                                    </button>
                                   </div>
-                                </div>
-                                <div className="flex items-center justify-end">
-                                  {task.assignee ? (
-                                    <div className="w-6 h-6 rounded-full bg-teal-500 flex items-center justify-center text-white text-xs">
-                                      {task.assignee}
-                                    </div>
-                                  ) : (
-                                    <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
-                                      👤
-                                    </div>
-                                  )}
                                 </div>
                               </div>
                             )}
@@ -218,14 +236,6 @@ const Board: React.FC = () => {
                         ))}
                         {provided.placeholder}
                       </div>
-
-                      {/* Add new task */}
-                      <button
-                        onClick={() => handleAddTask(colId)}
-                        className="mt-4 text-sm text-gray-500 hover:text-purple-600 flex items-center gap-1"
-                      >
-                        + Create
-                      </button>
                     </div>
                   )}
                 </Droppable>
@@ -234,6 +244,89 @@ const Board: React.FC = () => {
           </DragDropContext>
         </main>
       </div>
+
+      {/* ---------- Edit Modal ---------- */}
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={closeEdit} />
+          <div className="relative z-10 w-full max-w-md bg-white rounded-xl shadow-lg p-5">
+            <h3 className="text-lg font-semibold mb-4">Edit task</h3>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Title</label>
+                <input
+                  className="w-full border rounded-md px-3 py-2"
+                  value={editForm.title}
+                  onChange={(e) => setEditForm((s) => ({ ...s, title: e.target.value }))}
+                  placeholder="Task title"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Status</label>
+                  <select
+                    className="w-full border rounded-md px-3 py-2"
+                    value={editForm.status}
+                    onChange={(e) =>
+                      setEditForm((s) => ({ ...s, status: e.target.value as TaskStatus }))
+                    }
+                  >
+                    <option value="todo">to do</option>
+                    <option value="inprogress">in process</option>
+                    <option value="done">done</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Priority</label>
+                  <select
+                    className="w-full border rounded-md px-3 py-2"
+                    value={editForm.priority}
+                    onChange={(e) =>
+                      setEditForm((s) => ({ ...s, priority: e.target.value as TaskPriority }))
+                    }
+                  >
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Deadline</label>
+                <input
+                  type="date"
+                  className="w-full border rounded-md px-3 py-2"
+                  value={editForm.deadline}
+                  onChange={(e) => setEditForm((s) => ({ ...s, deadline: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 rounded-md border text-gray-700 hover:bg-gray-50"
+                onClick={closeEdit}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded-md bg-purple-600 text-white hover:bg-purple-700"
+                onClick={() => {
+                  void saveEdit();
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
