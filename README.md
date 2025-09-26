@@ -31,19 +31,20 @@ This project implements both **frontend** and **backend** with modern JavaScript
    cd TodoApp
 
 2. Start the backend:
-
-cd backend
-npm install
-npm run dev
-
+  ```bash
+  cd backend
+  npm install
+  npm run dev
+  ```
 
 3. Start the frontend:
-
-cd frontend
-npm install
-npm run dev
-
+  ```bash
+  cd frontend
+  npm install
+  npm run dev
+  ```
 
 4. Open the app in your browser:
 
 http://localhost:5173
+
